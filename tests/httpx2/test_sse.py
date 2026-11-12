@@ -376,14 +376,28 @@ def test_max_event_size_resets_between_events() -> None:
     assert [len(event.data) for event in events] == [80, 80]
 
 
-def test_max_event_size_applies_by_default() -> None:
+def test_default_event_size_accepts_large_mcp_response() -> None:
+    payload = '{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"example","description":"' + "x" * 1_400_000 + '"}]}}'
+
     def handler(request: httpx2.Request) -> httpx2.Response:
-        body = b"data: " + b"A" * (2 * 1024 * 1024) + b"\n\n"
+        body = ("data: " + payload + "\n\n").encode()
         return httpx2.Response(200, content=body, headers={"Content-Type": "text/event-stream"})
 
     with httpx2.Client(transport=httpx2.MockTransport(handler)) as client:
         with client.sse("http://testserver/sse") as source:
-            with pytest.raises(httpx2.SSEError, match="byte limit"):
+            (event,) = list(source)
+
+    assert event.json()["result"]["tools"][0]["name"] == "example"
+
+
+def test_max_event_size_applies_by_default() -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        body = b"data: " + b"A" * (9 * 1024 * 1024) + b"\n\n"
+        return httpx2.Response(200, content=body, headers={"Content-Type": "text/event-stream"})
+
+    with httpx2.Client(transport=httpx2.MockTransport(handler)) as client:
+        with client.sse("http://testserver/sse") as source:
+            with pytest.raises(httpx2.SSEEventTooLarge, match="8388608 byte limit"):
                 list(source)
 
 
@@ -435,10 +449,23 @@ def test_max_event_size_error_has_request() -> None:
 
     with httpx2.Client(transport=httpx2.MockTransport(handler)) as client:
         with client.sse("http://testserver/sse", max_event_size=4096) as source:
-            with pytest.raises(httpx2.SSEError) as exc_info:
+            with pytest.raises(httpx2.SSEEventTooLarge, match="4096 byte limit") as exc_info:
                 list(source)
 
     assert exc_info.value.request.url == "http://testserver/sse"
+    assert isinstance(exc_info.value, httpx2.SSEError)
+
+
+@pytest.mark.anyio
+async def test_max_event_size_error_is_specific_async() -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        body = b"data: " + b"A" * 8192 + b"\n\n"
+        return httpx2.Response(200, content=body, headers={"Content-Type": "text/event-stream"})
+
+    async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as client:
+        async with client.sse("http://testserver/sse", max_event_size=4096) as source:
+            with pytest.raises(httpx2.SSEEventTooLarge, match="4096 byte limit"):
+                [event async for event in source]
 
 
 @pytest.mark.anyio
@@ -453,7 +480,7 @@ async def test_max_event_size_applies_by_default_async() -> None:
             captured.append(source._max_event_size)
             [event async for event in source]
 
-    assert captured == [1024 * 1024]
+    assert captured == [8 * 1024 * 1024]
 
 
 @pytest.mark.anyio
