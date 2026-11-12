@@ -1,3 +1,5 @@
+from unittest.mock import AsyncMock
+
 import h2.events
 import h2.settings
 import hpack
@@ -561,14 +563,10 @@ async def test_http2_reader_does_not_read_again_after_condition_is_ready(
     else:
         monkeypatch.setattr(conn._h2_state, "local_flow_control_window", lambda _stream_id: 1)
 
-    async def unexpected_read(_request: httpcore2.Request, _stream_id: int | None = None) -> None:
-        pytest.fail("A ready stream or flow-control window must not trigger a network read")
-
-    async def unexpected_write(_request: httpcore2.Request) -> None:
-        pytest.fail("No frames should be written without a network read")
-
-    monkeypatch.setattr(conn, "_receive_events", unexpected_read)
-    monkeypatch.setattr(conn, "_write_outgoing_data", unexpected_write)
+    read_mock = AsyncMock()
+    write_mock = AsyncMock()
+    monkeypatch.setattr(conn, "_receive_events", read_mock)
+    monkeypatch.setattr(conn, "_write_outgoing_data", write_mock)
 
     request = httpcore2.Request("GET", "https://example.com/")
     await conn._read_and_dispatch(
@@ -576,3 +574,5 @@ async def test_http2_reader_does_not_read_again_after_condition_is_ready(
         stream_id=1 if ready == "stream" else None,
         flow_stream_id=1 if ready == "flow" else None,
     )
+    read_mock.assert_not_called()
+    write_mock.assert_not_called()
