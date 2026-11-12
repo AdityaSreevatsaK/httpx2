@@ -459,15 +459,16 @@ def test_max_event_size_error_has_request() -> None:
 
 
 @pytest.mark.anyio
-async def test_max_event_size_error_is_specific_async() -> None:
+async def test_default_event_size_accepts_large_response_async() -> None:
     def handler(request: httpx2.Request) -> httpx2.Response:
-        body = b"data: " + b"A" * 8192 + b"\n\n"
+        body = b"data: " + b"A" * 1_400_000 + b"\n\n"
         return httpx2.Response(200, content=body, headers={"Content-Type": "text/event-stream"})
 
     async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as client:
-        async with client.sse("http://testserver/sse", max_event_size=4096) as source:
-            with pytest.raises(httpx2.SSEEventTooLarge, match="4096 byte limit"):
-                [event async for event in source]
+        async with client.sse("http://testserver/sse") as source:
+            (event,) = [event async for event in source]
+
+    assert len(event.data) == 1_400_000
 
 
 @pytest.mark.anyio
