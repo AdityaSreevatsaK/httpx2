@@ -377,7 +377,11 @@ def test_max_event_size_resets_between_events() -> None:
 
 
 def test_default_event_size_accepts_large_mcp_response() -> None:
-    payload = '{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"example","description":"' + "x" * 1_400_000 + '"}]}}'
+    payload = (
+        '{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"example","description":"'
+        + "x" * 1_400_000
+        + '"}]}}'
+    )
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         body = ("data: " + payload + "\n\n").encode()
@@ -387,7 +391,9 @@ def test_default_event_size_accepts_large_mcp_response() -> None:
         with client.sse("http://testserver/sse") as source:
             (event,) = list(source)
 
-    assert event.json()["result"]["tools"][0]["name"] == "example"
+    data = event.json()
+    assert isinstance(data, dict)
+    assert data["result"]["tools"][0]["name"] == "example"
 
 
 def test_max_event_size_applies_by_default() -> None:
