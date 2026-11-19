@@ -239,6 +239,55 @@ def test_merge_relative_url_with_encoded_slashes() -> None:
     assert request.url == "https://www.example.com/base%2Fpath/testing"
 
 
+@pytest.mark.parametrize(
+    ("base_url", "relative_url", "expected"),
+    [
+        ("https://example.com/api?key=k", "items", "https://example.com/api/items?key=k"),
+        (
+            "https://example.com/api?key=k",
+            "/items?x=1",
+            "https://example.com/api/items?key=k&x=1",
+        ),
+        (
+            "https://example.com/base%2Fpath?key=k",
+            "/items%2Fpart?x=1",
+            "https://example.com/base%2Fpath/items%2Fpart?key=k&x=1",
+        ),
+        (
+            "https://example.com/api?key=k",
+            "../items",
+            "https://example.com/items?key=k",
+        ),
+        (
+            "https://example.com/api/?key=k",
+            "?x=1",
+            "https://example.com/api/?key=k&x=1",
+        ),
+    ],
+)
+def test_merge_relative_url_with_base_url_query(
+    base_url: str, relative_url: str, expected: str
+) -> None:
+    client = httpx2.Client(base_url=base_url)
+    assert str(client.build_request("GET", relative_url).url) == expected
+
+
+def test_base_url_setter_preserves_query_and_path() -> None:
+    client = httpx2.Client()
+    client.base_url = "https://example.com/api?token=a%2Fb"
+    assert str(client.base_url) == "https://example.com/api/?token=a%2Fb"
+    assert str(client.build_request("GET", "/items").url) == "https://example.com/api/items?token=a%2Fb"
+
+
+def test_base_url_query_with_request_params_keeps_path() -> None:
+    client = httpx2.Client(base_url="https://example.com/api?key=k")
+    # Request params still replace an existing query (see #905). They must
+    # never replace or absorb any part of the request path.
+    assert str(client.build_request("GET", "/items", params={"b": "2"}).url) == (
+        "https://example.com/api/items?b=2"
+    )
+
+
 def test_context_managed_transport() -> None:
     class Transport(httpx2.BaseTransport):
         def __init__(self) -> None:
