@@ -218,9 +218,12 @@ class BaseClient:
         return self._trust_env
 
     def _enforce_trailing_slash(self, url: URL) -> URL:
-        if url.raw_path.endswith(b"/"):
+        # raw_path includes the query string, so append the slash to the
+        # encoded path rather than accidentally appending it to the query.
+        raw_path, separator, query = url.raw_path.partition(b"?")
+        if raw_path.endswith(b"/"):
             return url
-        return url.copy_with(raw_path=url.raw_path + b"/")
+        return url.copy_with(raw_path=raw_path + b"/" + separator + query)
 
     def _get_proxy_map(self, proxy: ProxyTypes | None, allow_env_proxies: bool) -> dict[str, Proxy | None]:
         if proxy is None:
@@ -383,7 +386,14 @@ class BaseClient:
             # URL('https://www.example.com/subpath/')
             # >>> client.build_request("GET", "/path").url
             # URL('https://www.example.com/subpath/path')
-            merge_raw_path = self.base_url.raw_path + merge_url.raw_path.lstrip(b"/")
+            # Preserve encoded path components (%2F) and keep the base and
+            # relative queries separate from the path when appending it.
+            base_path, _, base_query = self.base_url.raw_path.partition(b"?")
+            relative_path, _, relative_query = merge_url.raw_path.partition(b"?")
+            merge_raw_path = base_path + relative_path.lstrip(b"/")
+            merged_query = b"&".join(query for query in (base_query, relative_query) if query)
+            if merged_query:
+                merge_raw_path += b"?" + merged_query
             return self.base_url.copy_with(raw_path=merge_raw_path)
         return merge_url
 
